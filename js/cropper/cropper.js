@@ -7,6 +7,8 @@
 
 /* GLOBALS */
 const MIN_CROPPED_SIZE = 30;
+const DEFAULT_CROPPER_RATIO = (4 / 3);
+const MAX_CROPPED_RESULT = 1920;
 
 function getMousePos(canvas, evt) {
 	var canvPos = canvas.getBoundingClientRect();
@@ -28,9 +30,22 @@ function isOnPosition(x, y, width, height, pos) {
 	return (pos.x >= x && pos.x <= (x + width) &&
 		pos.y >= y && pos.y <= (y + height));
 }
-/*
-* SHAPE
-* */
+
+/**
+ * SHAPE
+ *
+ * @param x : position du debut de dessin
+ * @param y : position du debut de dessin
+ * @param off.x : offset X lors d'une selection a la souris
+ * @param off.y : offset Y lors d'une selection a la souris
+ * @param height: shape's height
+ * @param width: shape's width
+ * @param ctx: reference to the context
+ * @param mycanvas: reference to the context
+ * @param moved: true if the object is being moved
+ * @param resized: true if the object is being resized
+ *
+ * */
 class Shape {
 	constructor(attr) {
 		if (attr && typeof attr != "object")
@@ -110,42 +125,48 @@ class ImageShape extends Shape {
 			this.image.src = prop.path;
 	}
 
+	/**
+	 * Sert a definir les ratios pour la representation de l'image*/
 	setRatio() {
 		this.yRatio = 1;
 		this.xRatio = 1;
 		this.ratio = this.image.naturalWidth / this.image.naturalHeight; // ratio de l'image
-		let scaleRatio; // ratio de mise a l'echelle
+		this.scale = 0; // echelle de l'image dessinee par rapport a l'image originelle.
 
+		// Si l'image rentre dans la zone de preview sans mise a l'echelle
 		if (this.image.naturalWidth <= this.mycanvas.width && this.image.naturalHeight <= this.mycanvas.height) {
 			this.width = this.image.naturalWidth;
 			this.height = this.image.naturalHeight;
 			this.ratio = 1;
-			this.x = (this.mycanvas.width - this.width) / 2;
-			this.y = (this.mycanvas.height - this.height) / 2;
+			this.scale = 1;
+			this.x = (this.mycanvas.width - this.width) / 2; // marge a laisser a gauche avant de dessiner (permet de centrer le dessin)
+			this.y = (this.mycanvas.height - this.height) / 2; // marge a laisser en haut avant de dessiner
 			return;
 		}
+		// Si l'image est un carre
 		if (this.ratio === 1) {
 			this.width = Math.min(this.mycanvas.height, this.mycanvas.width);
 			this.height = this.width;
 		}
+		// Si l'image est en mode portrait
 		else if (this.ratio < 1) {
-			scaleRatio = this.mycanvas.height / this.image.naturalHeight;
+			this.scale = this.mycanvas.height / this.image.naturalHeight;
 			this.height = this.mycanvas.height;
-			this.width = this.image.naturalWidth * scaleRatio;
+			this.width = this.image.naturalWidth * this.scale;
 			if (this.width > this.mycanvas.width) {
-				scaleRatio = this.mycanvas.width / this.image.naturalWidth;
+				this.scale = this.mycanvas.width / this.image.naturalWidth;
 				this.width = this.mycanvas.width;
-				this.height = this.image.naturalHeight * scaleRatio;
+				this.height = this.image.naturalHeight * this.scale;
 			}
 		}
-		else if (this.ratio > 1) {
-			scaleRatio = this.mycanvas.width / this.image.naturalWidth;
+		else if (this.ratio > 1) { // image paysage
+			this.scale = this.mycanvas.width / this.image.naturalWidth;
 			this.width = this.mycanvas.width;
-			this.height = this.image.naturalHeight * scaleRatio;
+			this.height = this.image.naturalHeight * this.scale;
 			if (this.height > this.mycanvas.height) {
-				scaleRatio = this.mycanvas.height / this.image.naturalHeight;
+				this.scale = this.mycanvas.height / this.image.naturalHeight;
 				this.height = this.mycanvas.height;
-				this.width = this.image.naturalWidth * scaleRatio;
+				this.width = this.image.naturalWidth * this.scale;
 			}
 		}
 		this.x = this.width === this.mycanvas.width ? 0 : (this.mycanvas.width - this.width) / 2;
@@ -162,7 +183,6 @@ class ImageShape extends Shape {
 			this.x, this.y,
 			this.width, this.height
 		);
-		//this.ctx.drawImage(this.image, this.x, this.y);
 	}
 }
 
@@ -173,25 +193,31 @@ class RectShape extends Shape {
 	constructor(attr) {
 		super(attr);
 		this.resizerSelectionSize = attr.resizerSelectionSize || 5; // taille des petits carre de selection de redimensionnement
-		this.ratio = attr.ratio || (16 / 9);
-		this.height = this.width / this.ratio;
+		this.setSize();
+	}
+
+	/**
+	 * Definit la taille de la zone de cropping
+	 * */
+	setSize() {
+		this.height = this.width / this.mycanvas.resultRatio;
 		if (this.width > this.mycanvas.width) {
 			this.width = this.mycanvas.width;
-			this.height = this.width / this.ratio;
+			this.height = this.width / this.mycanvas.resultRatio;
 			if (this.height > this.mycanvas.height) {
 				this.height = this.mycanvas.height;
-				this.width = this.height * this.ratio;
+				this.width = this.height * this.mycanvas.resultRatio;
 			}
 		}
 		else if (this.height > this.mycanvas.height) {
 			this.height = this.mycanvas.height;
-			this.width = this.height * this.ratio;
+			this.width = this.height * this.mycanvas.resultRatio;
 			if (this.width > this.mycanvas.width) {
 				this.width = this.mycanvas.width;
-				this.height = this.width / this.ratio;
+				this.height = this.width / this.mycanvas.resultRatio;
 			}
 		}
-		this.height = Math.floor(this.width / this.ratio);
+		this.height = Math.floor(this.width / this.mycanvas.resultRatio);
 	}
 
 	isCoordValid(newX, newY, newWidth, newHeight) {
@@ -205,9 +231,9 @@ class RectShape extends Shape {
 		console.log(`newHeight <= this.height - this.y: ${newHeight <= this.mycanvas.height - newY}`);*/
 		return (
 			newX >= 0 && newX <= this.mycanvas.width - MIN_CROPPED_SIZE &&
-			newY >= 0 && newY <= this.mycanvas.height - MIN_CROPPED_SIZE / this.ratio &&
+			newY >= 0 && newY <= this.mycanvas.height - MIN_CROPPED_SIZE / this.mycanvas.resultRatio &&
 			newWidth >= MIN_CROPPED_SIZE && newWidth <= this.mycanvas.width - newX &&
-			newHeight >= MIN_CROPPED_SIZE / this.ratio && newHeight <= this.mycanvas.height - newY
+			newHeight >= MIN_CROPPED_SIZE / this.mycanvas.resultRatio && newHeight <= this.mycanvas.height - newY
 		)
 	}
 
@@ -235,7 +261,7 @@ class RectShape extends Shape {
 			deltaX = pos.x - this.x;
 			newWidth = this.width - deltaX;
 			newY = this.y * (newWidth / this.width);
-			newHeight = newWidth / this.ratio;
+			newHeight = newWidth / this.mycanvas.resultRatio;
 			newX = this.x + deltaX;
 			if (this.isCoordValid(newX, newY, newWidth, newHeight) === true) {
 				this.x = newX;
@@ -247,7 +273,7 @@ class RectShape extends Shape {
 		else if (this.resized === 2) { // redimensionnement droit
 			deltaX = pos.x - this.x - this.width;
 			newWidth = this.width + deltaX;
-			newHeight = newWidth / this.ratio;
+			newHeight = newWidth / this.mycanvas.resultRatio;
 			if (this.isCoordValid(this.x, this.y, newWidth, newHeight) === true) {
 				this.width = newWidth;
 				this.height = newHeight;
@@ -255,22 +281,6 @@ class RectShape extends Shape {
 		}
 	}
 
-	/*draw() {
-		this.ctx.strokeStyle = this.strokeColor;
-		this.ctx.fillStyle = this.color;
-		this.ctx.globalAlpha = this.alpha;
-		this.ctx.fillRect(this.x, this.y, this.width, this.height);
-		this.ctx.strokeRect(this.x, this.y, this.width, this.height);
-		this.ctx.globalAlpha = 1;
-		this.ctx.fillStyle = this.resizerColor;
-		// Rectangle de selection du resize
-		//gauche
-		this.ctx.fillRect(this.x - this.resizerSelectionSize, this.y + (this.height / 2) - this.resizerSelectionSize ,
-			this.resizerSelectionSize * 2, this. resizerSelectionSize * 2);
-		// droite
-		this.ctx.fillRect(this.x + this.width - this.resizerSelectionSize, this.y + (this.height / 2) - this.resizerSelectionSize ,
-			this.resizerSelectionSize * 2, this. resizerSelectionSize * 2);
-	}*/
 	draw() {
 		this.ctx.strokeStyle = this.strokeColor;
 		this.ctx.fillStyle = this.color;
@@ -291,7 +301,19 @@ class RectShape extends Shape {
 
 /**
  * @param id: id de l'element canvas
- * @param imagePath (opt): chemin de l'image initiale si desiree
+ * @param prop: {
+ *          imagePath (string): chemin de l'image initiale si desiree,
+ *          previewId (string): id where the cropper preview image will be shown
+ *          realtime (boolean): refresh preview in realtime,
+ *          ratio (4/3): ratio of the cropper,
+ *          maxWidth: maximum size allowed for the result (maxHeight is calculated according to image ratio)
+ *          cropper (object): {
+ *            x: initial X position of the cropping box
+ *            y: initial Y position of the cropping box
+ *            resizerSelectionSize: size of the square allowing to resize the cropper box
+ *            color: color of the cropper shape
+ *          }
+ *        }
  * */
 class MyCanvas {
 	constructor(id, prop) {
@@ -306,10 +328,14 @@ class MyCanvas {
 			this.toRedraw = true;
 			this.interval = prop.interval || 30;
 			this.realtime = prop.realtime || true;
-			this.previewId = prop.previewId || null;
+			this.resultRatio = prop.ratio || DEFAULT_CROPPER_RATIO;
+			this.previewId = prop.preview.id || null;
+			this.previewWidth = prop.preview.width || null;
+			this.maxWidth = prop.maxWidth || MAX_CROPPED_RESULT;
+			this.setSize();
+			this.onSuccess = prop.onSuccess || null;
 			if (this.previewId && !(document.getElementById(this.previewId) instanceof HTMLImageElement))
 				this.previewId = null;
-
 			this.ctx.fillStyle = "#F0F8FF";
 			this.ctx.strokeStyle = "blue";
 
@@ -345,6 +371,13 @@ class MyCanvas {
 		}
 	}
 
+	/* Definit les tailles qui sont dependantes du ratio*/
+	setSize() {
+		if (this.previewWidth)
+			this.previewHeight = this.previewWidth / this.resultRatio;
+		this.maxHeight = this.maxWidth / this.resultRatio;
+	}
+
 	addImage(prop) {
 		this.shapes.push(new ImageShape(
 			Object.assign(prop, {ctx: this.ctx,	mycanvas: this})));
@@ -372,7 +405,7 @@ class MyCanvas {
 	 * */
 	uploadImage(e) {
 		if (typeof e === "string") {
-			this.shapes[0].image.src = e;
+			this.shapes[0].image.src = "http:" + e;
 			return;
 		}
 
@@ -409,21 +442,52 @@ class MyCanvas {
 		let bufCanvas = document.createElement('canvas');
 		let bufCtx = bufCanvas.getContext('2d');
 
-		bufCanvas.width = this.shapes[1].width;
-		bufCanvas.height = this.shapes[1].height;
-		bufCtx.drawImage(this.canvas, this.shapes[1].x, this.shapes[1].y,
-			this.shapes[1].width, this.shapes[1].height,
-			0, 0, bufCanvas.width, bufCanvas.height);
-		/*bufCanvas.width = this.shapes[1].width;
-		bufCanvas.height = this.shapes[1].height;
+		bufCanvas.width = this.previewWidth || this.shapes[1].width;
+		bufCanvas.height = this.previewHeight || this.shape[1].height;
 		bufCtx.drawImage(this.shapes[0].image,
-			this.shapes[1].x - this.shapes[0].x, this.shapes[1].y - this.shapes[0].y,
-			this.shapes[1].width * (this.shapes[0].image.naturalWidth / this.shapes[0].width), this.shapes[1].height * (this.shapes[0].image.naturalWidth / this.shapes[0].width) ,
-			0, 0, bufCanvas.width, bufCanvas.height);*/
+			(this.shapes[1].x - this.shapes[0].x) / this.shapes[0].scale,
+			(this.shapes[1].y - this.shapes[0].y) / this.shapes[0].scale,
+			this.shapes[1].width / this.shapes[0].scale,
+			this.shapes[1].height / this.shapes[0].scale,
+			0, 0,
+			bufCanvas.width, bufCanvas.height);
 
 		let image = document.getElementById(this.previewId);
-
 		document.getElementById(this.previewId).src = bufCanvas.toDataURL("image/png");
+	}
+
+	/**
+	 * Allows to swith between portrait / landscape
+	 */
+	toggleRatio() {
+		if (this.resultRatio !== 1) {
+			this.resultRatio = 1 / this.resultRatio;
+			this.setSize();
+			this.shapes[1].x = 0;
+			this.shapes[1].y = 0;
+			this.shapes[1].setSize();
+			this.toRedraw = true;
+		}
+	}
+
+	validate() {
+		if (this.onSuccess) {
+			let bufCanvas = document.createElement('canvas');
+			let bufCtx = bufCanvas.getContext('2d');
+
+			bufCanvas.width = Math.min(this.shapes[1].width / this.shapes[0].scale, this.maxWidth);
+			bufCanvas.height = Math.min(this.shapes[1].height / this.shapes[0].scale, this.maxHeight);
+			console.log(`Buf canvas: width/height: ${bufCanvas.width}/${bufCanvas.height}`);
+
+			bufCtx.drawImage(this.shapes[0].image,
+				(this.shapes[1].x - this.shapes[0].x) / this.shapes[0].scale,
+				(this.shapes[1].y - this.shapes[0].y) / this.shapes[0].scale,
+				this.shapes[1].width / this.shapes[0].scale,
+				this.shapes[1].height / this.shapes[0].scale,
+				0, 0,
+				bufCanvas.width, bufCanvas.height);
+			this.onSuccess(bufCanvas.toDataURL("image/png"));
+		}
 	}
 }
 
